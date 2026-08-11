@@ -170,4 +170,33 @@ window.studentView = async function renderStudentWorkspace() {
     api('/api/student/motivation').then(d => { const quote = ld('v3quote'); if (quote) quote.textContent = d.quote; showDailyMotivation(d, first); }).catch(() => {});
   } catch (e) { app.innerHTML = `<div class="v3-error"><h2>We couldn’t open your workspace.</h2><p>${safe(e.message)}</p><button onclick="logout()">Sign in again</button></div>`; }
 };
-async function v3SubmitQuiz(event) { event.preventDefault(); const card = ld('v3replay-result'); card.innerHTML = '<p class="loading">Iqra is replaying your written steps…</p>'; try { const d = await api('/api/quiz/submit',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(event.target)))}); card.innerHTML = `<small>${d.correct?'GREAT WORK':'REPAIR SIGNAL'}</small><h3>${safe(d.replay.message)}</h3><ol>${d.replay.better_path.map(x=>`<li>${safe(x)}</li>`).join('')}</ol><p>${d.misconception?`Pattern detected: ${safe(d.misconception.concept)}.`:`+${d.xp_earned} XP added.`}</p>`; if (typeof window.afterThinkingAnswer === 'function') window.afterThinkingAnswer(d); } catch(e) { card.textContent = e.message; } }
+async function v3SubmitQuiz(event) {
+  event.preventDefault();
+  const form = event.target;
+  const card = ld('v3replay-result');
+  const button = form.querySelector('button');
+  const payload = Object.fromEntries(new FormData(form));
+  if (button) { button.disabled = true; button.textContent = 'Iqra is checking...'; }
+  if (card) {
+    card.className = 'v3-replay-result thinking-feedback-card is-loading';
+    card.innerHTML = `<div class="thinking-loader"><span></span><div><small>IQRA IS REPLAYING</small><h3>Checking your answer and reasoning...</h3><p>Iqra is saving your learning trail and updating your progress.</p></div></div>`;
+  }
+  try {
+    const d = await api('/api/quiz/submit', {method:'POST', body:JSON.stringify(payload)});
+    const steps = Array.isArray(d.replay?.better_path) && d.replay.better_path.length ? d.replay.better_path : ['Read the question carefully.', 'Write the known information.', 'Try one smaller step and check it.'];
+    const message = d.replay?.message || (d.correct ? 'Your answer is correct.' : 'This needs one more careful attempt.');
+    if (card) {
+      card.className = `v3-replay-result thinking-feedback-card ${d.correct ? 'is-correct' : 'needs-repair'}`;
+      card.innerHTML = `<div class="thinking-feedback-top"><span>${d.correct ? '✓' : '!'}</span><div><small>${d.correct ? 'GREAT WORK' : 'REPAIR SIGNAL'}</small><h3>${safe(d.correct ? 'Your reasoning is on track.' : 'Iqra found a useful next step.')}</h3></div></div><p class="thinking-feedback-message">${safe(message)}</p><div class="thinking-step-box"><b>Better path</b><ol>${steps.map((x, i) => `<li><span>${i + 1}</span>${safe(x)}</li>`).join('')}</ol></div><div class="thinking-xp-pill">${d.correct ? `+${d.xp_earned} XP added to your profile` : `+${d.xp_earned} XP for an honest attempt`}</div>${d.misconception ? `<p class="thinking-pattern">Pattern detected: <b>${safe(d.misconception.concept)}</b>. Iqra will adapt your next missions.</p>` : ''}<button class="thinking-next-btn" onclick="nextThinkingQuestion()">Try next challenge →</button>`;
+    }
+    uiToast(d.correct ? `Great work. +${d.xp_earned} XP added.` : `Good attempt. +${d.xp_earned} XP added and Iqra saved the repair signal.`);
+    if (typeof window.afterThinkingAnswer === 'function') window.afterThinkingAnswer(d);
+  } catch(e) {
+    if (card) {
+      card.className = 'v3-replay-result thinking-feedback-card needs-repair';
+      card.innerHTML = `<small>COULD NOT CHECK</small><h3>Iqra could not save this attempt.</h3><p>${safe(e.message)}</p>`;
+    }
+  } finally {
+    if (button) { button.disabled = false; button.textContent = 'Check my thinking →'; }
+  }
+}
